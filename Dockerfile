@@ -20,7 +20,7 @@ COPY . .
 ENV PORT=3000
 EXPOSE 3000
 
-# 上传的 PDF / 缩略图 / 数据均落在以下目录，部署时务必挂载为持久卷
-VOLUME ["/app/uploads", "/app/thumbs", "/app/data"]
+# 上传的 PDF / 缩略图 / 数据均落在以下目录
+# 部署后请在 Railway 面板为 /app/uploads、/app/thumbs、/app/data 添加 Volume，否则重部署会清空数据
 
 CMD ["npm", "start"]
