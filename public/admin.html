@@ -122,16 +122,16 @@
   $('#drop').onclick=()=>$('#file').click();
   $('#file').onchange=()=>{ if($('#file').files[0]) $('#drop').textContent='已选择：'+$('#file').files[0].name; };
   $('#uploadBtn').onclick=async()=>{
-    if(!KEY){ showMsg($('#upMsg),'err','请先在上方填写并保存管理员密钥。'); return; }
+    if(!KEY){ showMsg($('#upMsg'),'err','请先在上方填写并保存管理员密钥。'); return; }
     const file=$('#file').files[0];
-    if(!file){ showMsg($('#upMsg),'err','请选择一个 PDF 文件。'); return; }
+    if(!file){ showMsg($('#upMsg'),'err','请选择一个 PDF 文件。'); return; }
     const fd=new FormData();
     fd.append('pdf',file); fd.append('title',$('#title').value.trim());
     fd.append('zoneId',$('#zoneSel').value); fd.append('newZone',$('#newZone').value.trim());
-    showMsg($('#upMsg),'ok','上传中，正在生成封面…');
+    showMsg($('#upMsg'),'ok','上传中，正在生成封面…');
     const r=await fetch('/api/admin/upload',{method:'POST',headers:{'x-admin-key':KEY},body:fd}).then(r=>r.json());
-    if(r.error){ showMsg($('#upMsg),'err',r.error); return; }
-    showMsg($('#upMsg),'ok','上传成功：'+r.title);
+    if(r.error){ showMsg($('#upMsg'),'err',r.error); return; }
+    showMsg($('#upMsg'),'ok','上传成功：'+r.title);
     $('#file').value=''; $('#title').value=''; $('#newZone').value=''; $('#drop').textContent='点击选择 PDF 文件，或拖拽到此处';
     loadZones(); loadFiles();
   };
