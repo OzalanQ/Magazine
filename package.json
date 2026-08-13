@@ -1,0 +1,19 @@
+{
+  "name": "yunyue-pdf-library",
+  "version": "1.0.0",
+  "description": "云阅 · PDF 资料库 — 访客浏览 + 后台上传的轻量应用",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
+    "express": "^4.19.2",
+    "fontkit": "^2.0.4",
+    "multer": "^2.2.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
+  }
+}

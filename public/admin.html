@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reading for fun · 后台</title>
+<style>
+  :root{--bg:#f5f6f8;--panel:#fff;--ink:#1f2430;--ink-soft:#6b7280;--line:#e7e9ef;--accent:#4f6ef7;--accent-soft:#eef1fe;--radius:14px;--shadow:0 1px 3px rgba(20,30,60,.06),0 8px 24px rgba(20,30,60,.06)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"PingFang SC","Microsoft YaHei",-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;padding:26px}
+  .wrap{max-width:980px;margin:0 auto}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#4f6ef7,#7b5cf0);display:grid;place-items:center;color:#fff;font-weight:800}
+  .head h1{font-size:20px}.head a{margin-left:auto;color:var(--ink-soft);font-size:13px;text-decoration:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:18px}
+  .card h2{font-size:15px;margin-bottom:14px}
+  label{display:block;font-size:13px;color:var(--ink-soft);margin:12px 0 6px}
+  input[type=text],input[type=password],select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;outline:none;background:var(--panel)}
+  input:focus,select:focus{border-color:var(--accent)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:200px}
+  .btn{border:0;cursor:pointer;border-radius:10px;padding:10px 18px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{filter:brightness(1.05)}.btn.ghost{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+  .drop{border:1.5px dashed #c4cbe0;border-radius:12px;background:#fbfcff;padding:22px;text-align:center;color:var(--ink-soft);cursor:pointer;font-size:14px;transition:.15s}
+  .drop:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .msg{font-size:13px;margin-top:12px;padding:10px 12px;border-radius:10px;display:none}
+  .msg.ok{display:block;background:#eafaf1;color:#1f8a4d}.msg.err{display:block;background:#fdecec;color:#c0392b}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--ink-soft);font-weight:600;font-size:12px}
+  .mini{width:46px;height:60px;border-radius:6px;object-fit:cover;background:#eee;vertical-align:middle}
+  .del{border:1px solid #f0c4c4;background:#fff;color:#c0392b;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px}
+  .del:hover{background:#fdecec}
+  .pill{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:2px 9px}
+  .zones{display:flex;gap:8px;flex-wrap:wrap}
+  .ztag{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:5px 12px;font-size:13px}
+  .ztag button{border:0;background:transparent;color:#c0392b;cursor:pointer;font-size:13px;line-height:1}
+  .keybar{display:flex;gap:10px;align-items:center}
+  .keybar input{flex:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo">R</div><h1>Reading for fun · 后台</h1>
+    <a href="/">← 返回访客页面</a>
+  </div>
+
+  <div class="card">
+    <div class="keybar">
+      <input type="password" id="key" placeholder="管理员密钥（首次默认 changeme，可在服务器用 ADMIN_KEY 修改）" />
+      <button class="btn ghost" id="saveKey">保存密钥</button>
+    </div>
+    <div class="msg" id="keyMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>上传 PDF</h2>
+    <div class="drop" id="drop">点击选择 PDF 文件，或拖拽到此处</div>
+    <input type="file" id="file" accept="application/pdf" hidden />
+    <label>标题（留空则使用文件名）</label>
+    <input type="text" id="title" placeholder="例如：2026 春季刊 · 城市漫游" />
+    <div class="row">
+      <div>
+        <label>选择分区</label>
+        <select id="zoneSel"></select>
+      </div>
+      <div>
+        <label>或新建分区</label>
+        <input type="text" id="newZone" placeholder="输入新分区名后上传即创建" />
+      </div>
+    </div>
+    <div style="margin-top:16px"><button class="btn" id="uploadBtn">⬆️ 上传并生成封面</button></div>
+    <div class="msg" id="upMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>分区管理</h2>
+    <div class="zones" id="zoneTags"></div>
+    <div class="row" style="margin-top:14px">
+      <div><input type="text" id="addZone" placeholder="新分区名称" /></div>
+      <div style="flex:0"><button class="btn ghost" id="addZoneBtn">+ 新建分区</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>已上传文件</h2>
+    <table>
+      <thead><tr><th>封面</th><th>标题</th><th>分区</th><th>页数</th><th>大小</th><th>上传日期</th><th></th></tr></thead>
+      <tbody id="fileRows"><tr><td colspan="7" style="color:var(--ink-soft)">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const $=(s)=>document.querySelector(s);
+  let KEY = localStorage.getItem('yy_key') || '';
+  if(KEY) $('#key').value = KEY;
+  const hdr = ()=>({'x-admin-key':KEY,'Content-Type':'application/json'});
+
+  $('#saveKey').onclick=()=>{ KEY=$('#key').value.trim(); localStorage.setItem('yy_key',KEY); const m=$('#keyMsg'); m.className='msg ok'; m.textContent='密钥已保存到本地浏览器。'; };
+
+  async function loadZones(){
+    const z=await fetch('/api/zones').then(r=>r.json());
+    $('#zoneSel').innerHTML = z.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+    $('#zoneTags').innerHTML = z.map(x=>`<span class="ztag">${x.name}<button data-id="${x.id}">×</button></span>`).join('');
+    $('#zoneTags').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ if(!confirm('删除该分区？分区下的文件不会被删除，仅变为“未分类”。'))return; await fetch('/api/admin/zone/'+b.dataset.id,{method:'DELETE',headers:hdr()}).then(r=>r.json()).then(loadZones); });
+  }
+  async function loadFiles(){
+    const f=await fetch('/api/files?zone=all').then(r=>r.json());
+    if(!f.length){ $('#fileRows').innerHTML='<tr><td colspan="7" style="color:var(--ink-soft)">还没有文件，先上传一个吧。</td></tr>'; return; }
+    $('#fileRows').innerHTML = f.map(x=>`<tr>
+      <td><img class="mini" src="/thumb/${x.id}" alt=""></td>
+      <td>${x.title}</td><td><span class="pill">${x.zoneName}</span></td>
+      <td>${x.pages||'-'}</td><td>${fmt(x.size)}</td><td>${x.uploadedAt||''}</td>
+      <td><button class="del" data-id="${x.id}">删除</button></td></tr>`).join('');
+    $('#fileRows').querySelectorAll('.del').forEach(b=>b.onclick=async()=>{ if(!confirm('确认删除该文件？'))return; const r=await fetch('/api/admin/file/'+b.dataset.id,{method:'DELETE',headers:hdr()}).then(r=>r.json()); if(r.ok){ loadFiles(); } else alert('删除失败：'+(r.error||'')); });
+  }
+  function fmt(b){ if(b>1048576)return(b/1048576).toFixed(1)+' MB'; if(b>1024)return(b/1024).toFixed(0)+' KB'; return b+' B'; }
+
+  // 上传
+  $('#drop').onclick=()=>$('#file').click();
+  $('#file').onchange=()=>{ if($('#file').files[0]) $('#drop').textContent='已选择：'+$('#file').files[0].name; };
+  $('#uploadBtn').onclick=async()=>{
+    if(!KEY){ showMsg($('#upMsg),'err','请先在上方填写并保存管理员密钥。'); return; }
+    const file=$('#file').files[0];
+    if(!file){ showMsg($('#upMsg),'err','请选择一个 PDF 文件。'); return; }
+    const fd=new FormData();
+    fd.append('pdf',file); fd.append('title',$('#title').value.trim());
+    fd.append('zoneId',$('#zoneSel').value); fd.append('newZone',$('#newZone').value.trim());
+    showMsg($('#upMsg),'ok','上传中，正在生成封面…');
+    const r=await fetch('/api/admin/upload',{method:'POST',headers:{'x-admin-key':KEY},body:fd}).then(r=>r.json());
+    if(r.error){ showMsg($('#upMsg),'err',r.error); return; }
+    showMsg($('#upMsg),'ok','上传成功：'+r.title);
+    $('#file').value=''; $('#title').value=''; $('#newZone').value=''; $('#drop').textContent='点击选择 PDF 文件，或拖拽到此处';
+    loadZones(); loadFiles();
+  };
+  function showMsg(el,type,t){ el.className='msg '+type; el.textContent=t; }
+
+  // 拖拽
+  ['dragover','dragenter'].forEach(e=>$('#drop').addEventListener(e,ev=>{ev.preventDefault();$('#drop').style.borderColor='var(--accent)';$('#drop').style.color='var(--accent)';}));
+  ['dragleave','drop'].forEach(e=>$('#drop').addEventListener(e,ev=>{ev.preventDefault();$('#drop').style.borderColor='';$('#drop').style.color='';}));
+  $('#drop').addEventListener('drop',ev=>{ const f=ev.dataTransfer.files[0]; if(f){ $('#file').files=ev.dataTransfer.files; $('#drop').textContent='已选择：'+f.name; } });
+
+  // 新建分区
+  $('#addZoneBtn').onclick=async()=>{ const n=$('#addZone').value.trim(); if(!n)return; const r=await fetch('/api/admin/zone',{method:'POST',headers:hdr(),body:JSON.stringify({name:n})}).then(r=>r.json()); if(r.error){alert(r.error);return;} $('#addZone').value=''; loadZones(); };
+
+  loadZones(); loadFiles();
+</script>
+</body>
+</html>

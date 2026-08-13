@@ -1,0 +1,18 @@
+# 依赖（部署时通过 npm ci 安装）
+node_modules/
+
+# 用户上传的 PDF 源文件与封面缩略图（运行数据，不进仓库）
+uploads/*
+!uploads/.gitkeep
+thumbs/*
+!thumbs/.gitkeep
+
+# 日志
+*.log
+server.log
+
+# 内部工具状态
+.workbuddy/
+
+# 早期设计原型（非应用本体）
+pdf-library-mockup.html
