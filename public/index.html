@@ -121,7 +121,6 @@
 
   async function init(){
     zones = await fetch('/api/zones').then(r=>r.json());
-    renderZones();
     await loadFiles();
   }
   function renderZones(){
@@ -141,6 +140,7 @@
     const zn = curZone==='all' ? '全部文件' : (zones.find(x=>x.id===curZone)||{}).name || '';
     $('#zoneName').textContent = zn; $('#crumbZone').textContent = zn;
     $('#zoneTotal').textContent = list.length + ' 个文件';
+    renderZones();
     const grid = $('#grid'); grid.className = 'grid'+(curView==='list'?' list':'');
     grid.innerHTML = list.length ? list.map(f=>`
       <article class="card" data-id="${f.id}" data-title="${f.title.replace(/"/g,'')}">

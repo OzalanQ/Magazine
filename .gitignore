@@ -16,3 +16,6 @@ server.log
 
 # 早期设计原型（非应用本体）
 pdf-library-mockup.html
+
+# macOS
+.DS_Store
