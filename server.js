@@ -20,6 +20,18 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme';
 const THUMB_W = 480; // 缩略图目标宽度(px)
 
+// 异步任务超时包装，防止 PDF 渲染卡住导致请求挂起
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} 超时 (${ms}ms)`)), ms))
+  ]);
+}
+
+// 记录未捕获异常，避免进程直接崩溃
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e && e.stack || e));
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e && e.stack || e));
+
 [UPLOADS, THUMBS, DATA].forEach((d) => fs.mkdirSync(d, { recursive: true }));
 
 const readJSON = (f, def) => {
@@ -155,10 +167,17 @@ app.post('/api/admin/upload', requireKey, upload.single('pdf'), async (req, res)
     const thumbName = id + '.png';
     // 页数
     let pages = 0;
-    try { pages = (await PDFDocument.load(fs.readFileSync(req.file.path))).getPageCount(); } catch {}
+    try {
+      const pdfDoc = await withTimeout(PDFDocument.load(fs.readFileSync(req.file.path)), 5000, 'PDF页数读取');
+      pages = pdfDoc.getPageCount();
+    } catch (e) { console.error('页数读取失败/超时：', e.message); }
     // 缩略图
-    try { await makeThumb(req.file.path, path.join(THUMBS, thumbName)); }
-    catch (e) { console.error('缩略图生成失败，使用占位图：', e.message); await placeholderThumb(path.join(THUMBS, thumbName), title); }
+    try {
+      await withTimeout(makeThumb(req.file.path, path.join(THUMBS, thumbName)), 15000, '缩略图生成');
+    } catch (e) {
+      console.error('缩略图生成失败/超时，使用占位图：', e.message);
+      await placeholderThumb(path.join(THUMBS, thumbName), title);
+    }
     const meta = {
       id, title, zoneId: zone.id, zoneName: zone.name,
       filename: req.file.filename, thumb: thumbName,
