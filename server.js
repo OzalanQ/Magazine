@@ -7,6 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { PDFDocument } = require('pdf-lib');
 
 const app = express();
@@ -20,19 +21,12 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme';
 const THUMB_W = 480; // 缩略图目标宽度(px)
 
-// 异步任务超时包装，防止 PDF 渲染卡住导致请求挂起
+// 异步任务超时包装
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} 超时 (${ms}ms)`)), ms))
   ]);
-}
-
-// 缓存 pdfjs 动态导入，避免每次上传重复解析 ESM 模块
-let _pdfjsPromise = null;
-function getPdfjs() {
-  if (!_pdfjsPromise) _pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-  return _pdfjsPromise;
 }
 
 // 记录未捕获异常，避免进程直接崩溃
@@ -86,32 +80,16 @@ app.get('/file/:id', (req, res) => {
 app.get('/thumb/:id', (req, res) => {
   const f = files.find((x) => x.id === req.params.id);
   if (!f) return res.status(404).end();
-  res.type('image/png');
+  const ext = path.extname(f.thumb).toLowerCase();
+  const type = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+    : ext === '.webp' ? 'image/webp'
+    : ext === '.gif' ? 'image/gif' : 'image/png';
+  res.type(type);
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(path.join(THUMBS, f.thumb)).pipe(res);
 });
 
-// ---------- 缩略图生成（PDF 首页 -> PNG） ----------
-async function makeThumb(pdfPath, outPath) {
-  const pdfjs = await getPdfjs();
-  const { createCanvas } = require('@napi-rs/canvas');
-  const stdFonts = 'file://' + path.join(ROOT, 'node_modules', 'pdfjs-dist', 'standard_fonts');
-  const buf = new Uint8Array(fs.readFileSync(pdfPath));
-  const doc = await pdfjs.getDocument({ data: buf, standardFontDataUrl: stdFonts }).promise;
-  const page = await doc.getPage(1);
-  const base = page.getViewport({ scale: 1 });
-  const scale = THUMB_W / base.width;
-  const viewport = page.getViewport({ scale });
-  const canvas = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-  const ctx = canvas.getContext('2d');
-  // 白底，避免透明
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
-  await page.render({ canvasContext: ctx, viewport }).promise;
-  fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
-  await doc.destroy();
-}
-
+// ---------- 默认封面（渐变占位图，不解析 PDF） ----------
 async function placeholderThumb(outPath, title) {
   const { createCanvas } = require('@napi-rs/canvas');
   const canvas = createCanvas(THUMB_W, Math.round(THUMB_W * 1.33));
@@ -124,15 +102,35 @@ async function placeholderThumb(outPath, title) {
   fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
 }
 
+// 允许上传的图片类型
+const IMG_RE = /\.(png|jpe?g|webp|gif)$/i;
+
 // ---------- 上传（管理员） ----------
-const storage = multer.diskStorage({
-  destination: UPLOADS,
-  filename: (req, file, cb) => cb(null, crypto.randomUUID() + '.pdf'),
+// 统一磁盘存储：pdf -> uploads/，cover -> 临时目录（稍后复制到 thumbs）
+const store = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, file.fieldname === 'cover' ? os.tmpdir() : UPLOADS),
+  filename: (req, file, cb) => cb(null,
+    file.fieldname === 'cover'
+      ? crypto.randomUUID() + (path.extname(file.originalname).toLowerCase() || '.png')
+      : crypto.randomUUID() + '.pdf'),
 });
-const upload = multer({
-  storage,
+const isPdf = (f) => /pdf$/i.test(f.originalname) || f.mimetype === 'application/pdf';
+const isImg = (f) => IMG_RE.test(f.originalname) || /^image\//.test(f.mimetype);
+// PDF + 可选封面图 一起上传
+const uploadBoth = multer({
+  storage: store,
   limits: { fileSize: 200 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, /pdf$/i.test(file.originalname) || file.mimetype === 'application/pdf'),
+  fileFilter: (req, file, cb) => cb(null, file.fieldname === 'cover' ? isImg(file) : isPdf(file)),
+}).fields([
+  { name: 'pdf', maxCount: 1 },
+  { name: 'cover', maxCount: 1 },
+]);
+// 单独更新封面图
+const coverStore = multer.diskStorage({ destination: os.tmpdir(), filename: (req, file, cb) => cb(null, crypto.randomUUID() + (path.extname(file.originalname).toLowerCase() || '.png')) });
+const uploadCover = multer({
+  storage: coverStore,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, isImg(file)),
 });
 
 app.post('/api/admin/zone', requireKey, (req, res) => {
@@ -159,9 +157,10 @@ app.delete('/api/admin/zone/:id', requireKey, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/admin/upload', requireKey, upload.single('pdf'), async (req, res) => {
+app.post('/api/admin/upload', requireKey, uploadBoth, async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: '请选择 PDF 文件' });
+    const pdfFile = req.files && req.files.pdf && req.files.pdf[0];
+    if (!pdfFile) return res.status(400).json({ error: '请选择 PDF 文件' });
     let zoneId = (req.body.zoneId || '').trim();
     const newZone = (req.body.newZone || '').trim();
     if (newZone) {
@@ -170,38 +169,58 @@ app.post('/api/admin/upload', requireKey, upload.single('pdf'), async (req, res)
       zones.push(z); writeJSON(ZONES_F, zones); zoneId = z.id;
     }
     const zone = zones.find((z) => z.id === zoneId) || zones[0];
-    const title = (req.body.title || req.file.originalname.replace(/\.pdf$/i, '')).trim();
+    const title = (req.body.title || pdfFile.originalname.replace(/\.pdf$/i, '')).trim();
     const id = crypto.randomUUID();
-    const thumbName = id + '.png';
 
-    // 先写占位封面（极快），保证响应前缩略图端点立即可用
-    await placeholderThumb(path.join(THUMBS, thumbName), title);
+    // 封面：优先用上传的自定义图片，否则用渐变占位图（均不解析 PDF）
+    let thumbName;
+    const coverFile = req.files && req.files.cover && req.files.cover[0];
+    if (coverFile) {
+      const ext = path.extname(coverFile.originalname).toLowerCase() || '.png';
+      thumbName = id + ext;
+      fs.copyFileSync(coverFile.path, path.join(THUMBS, thumbName));
+      fs.unlinkSync(coverFile.path);
+    } else {
+      thumbName = id + '.png';
+      await placeholderThumb(path.join(THUMBS, thumbName), title);
+    }
 
-    // 立即返回成功，PDF 首页渲染与页数读取放到后台异步完成，不阻塞上传
     const meta = {
       id, title, zoneId: zone.id, zoneName: zone.name,
-      filename: req.file.filename, thumb: thumbName,
-      pages: 0, size: req.file.size, uploadedAt: new Date().toISOString().slice(0, 10),
+      filename: pdfFile.filename, thumb: thumbName,
+      pages: 0, size: pdfFile.size, uploadedAt: new Date().toISOString().slice(0, 10),
     };
     files.unshift(meta);
     writeJSON(FILES_F, files);
     res.json(meta);
 
-    // 后台任务：读取页数 + 生成真实封面
+    // 后台只读页数（轻量，不渲染封面），失败不影响已保存的文件
     (async () => {
       try {
-        const pdfDoc = await withTimeout(PDFDocument.load(fs.readFileSync(req.file.path)), 8000, 'PDF页数读取');
+        const pdfDoc = await withTimeout(PDFDocument.load(fs.readFileSync(pdfFile.path)), 8000, 'PDF页数读取');
         meta.pages = pdfDoc.getPageCount();
+        writeJSON(FILES_F, files);
       } catch (e) { console.error('页数读取失败/超时：', e.message); }
-      try {
-        await withTimeout(makeThumb(req.file.path, path.join(THUMBS, thumbName)), 20000, '缩略图生成');
-      } catch (e) { console.error('后台缩略图生成失败，保留占位图：', e.message); }
-      writeJSON(FILES_F, files); // 同步最新页数
     })();
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: '上传失败：' + e.message });
   }
+});
+
+// 单独设置/替换封面
+app.post('/api/admin/cover/:id', requireKey, uploadCover.single('cover'), (req, res) => {
+  const f = files.find((x) => x.id === req.params.id);
+  if (!f) return res.status(404).json({ error: '文件不存在' });
+  if (!req.file) return res.status(400).json({ error: '请选择封面图片' });
+  try { fs.unlinkSync(path.join(THUMBS, f.thumb)); } catch {}
+  const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
+  const thumbName = f.id + ext;
+  fs.copyFileSync(req.file.path, path.join(THUMBS, thumbName));
+  fs.unlinkSync(req.file.path);
+  f.thumb = thumbName;
+  writeJSON(FILES_F, files);
+  res.json({ ok: true, thumb: thumbName });
 });
 
 app.delete('/api/admin/file/:id', requireKey, (req, res) => {

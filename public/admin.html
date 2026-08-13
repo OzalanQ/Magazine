@@ -31,6 +31,8 @@
   .mini{width:46px;height:60px;border-radius:6px;object-fit:cover;background:#eee;vertical-align:middle}
   .del{border:1px solid #f0c4c4;background:#fff;color:#c0392b;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px}
   .del:hover{background:#fdecec}
+  .cover-btn{border:1px solid #cdd6f7;background:#fff;color:var(--accent);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px}
+  .cover-btn:hover{background:var(--accent-soft)}
   .pill{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:2px 9px}
   .zones{display:flex;gap:8px;flex-wrap:wrap}
   .ztag{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:5px 12px;font-size:13px}
@@ -58,6 +60,8 @@
     <h2>上传 PDF</h2>
     <div class="drop" id="drop">点击选择 PDF 文件，或拖拽到此处</div>
     <input type="file" id="file" accept="application/pdf" hidden />
+    <label>封面图片（可选，留空则用默认渐变封面）</label>
+    <input type="file" id="cover" accept="image/*" />
     <label>标题（留空则使用文件名）</label>
     <input type="text" id="title" placeholder="例如：2026 春季刊 · 城市漫游" />
     <div class="row">
@@ -70,7 +74,7 @@
         <input type="text" id="newZone" placeholder="输入新分区名后上传即创建" />
       </div>
     </div>
-    <div style="margin-top:16px"><button class="btn" id="uploadBtn">⬆️ 上传并生成封面</button></div>
+    <div style="margin-top:16px"><button class="btn" id="uploadBtn">⬆️ 上传 PDF</button></div>
     <div class="msg" id="upMsg"></div>
   </div>
 
@@ -86,8 +90,8 @@
   <div class="card">
     <h2>已上传文件</h2>
     <table>
-      <thead><tr><th>封面</th><th>标题</th><th>分区</th><th>页数</th><th>大小</th><th>上传日期</th><th></th></tr></thead>
-      <tbody id="fileRows"><tr><td colspan="7" style="color:var(--ink-soft)">加载中…</td></tr></tbody>
+      <thead><tr><th>封面</th><th>标题</th><th>分区</th><th>页数</th><th>大小</th><th>上传日期</th><th>操作</th></tr></thead>
+      <tbody id="fileRows"><tr><td colspan="8" style="color:var(--ink-soft)">加载中…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -108,13 +112,14 @@
   }
   async function loadFiles(){
     const f=await fetch('/api/files?zone=all').then(r=>r.json());
-    if(!f.length){ $('#fileRows').innerHTML='<tr><td colspan="7" style="color:var(--ink-soft)">还没有文件，先上传一个吧。</td></tr>'; return; }
+    if(!f.length){ $('#fileRows').innerHTML='<tr><td colspan="8" style="color:var(--ink-soft)">还没有文件，先上传一个吧。</td></tr>'; return; }
     $('#fileRows').innerHTML = f.map(x=>`<tr>
-      <td><img class="mini" src="/thumb/${x.id}" alt=""></td>
+      <td><img class="mini" src="/thumb/${x.id}?t=${Date.now()}" alt=""></td>
       <td>${x.title}</td><td><span class="pill">${x.zoneName}</span></td>
       <td>${x.pages||'-'}</td><td>${fmt(x.size)}</td><td>${x.uploadedAt||''}</td>
-      <td><button class="del" data-id="${x.id}">删除</button></td></tr>`).join('');
+      <td><button class="cover-btn" data-id="${x.id}">设封面</button> <button class="del" data-id="${x.id}">删除</button></td></tr>`).join('');
     $('#fileRows').querySelectorAll('.del').forEach(b=>b.onclick=async()=>{ if(!confirm('确认删除该文件？'))return; const r=await fetch('/api/admin/file/'+b.dataset.id,{method:'DELETE',headers:hdr()}).then(r=>r.json()); if(r.ok){ loadFiles(); } else alert('删除失败：'+(r.error||'')); });
+    $('#fileRows').querySelectorAll('.cover-btn').forEach(b=>b.onclick=()=>{ $('#coverPick').dataset.id=b.dataset.id; $('#coverPick').click(); });
   }
   function fmt(b){ if(b>1048576)return(b/1048576).toFixed(1)+' MB'; if(b>1024)return(b/1024).toFixed(0)+' KB'; return b+' B'; }
 
@@ -127,12 +132,14 @@
     if(!file){ showMsg($('#upMsg'),'err','请选择一个 PDF 文件。'); return; }
     const fd=new FormData();
     fd.append('pdf',file); fd.append('title',$('#title').value.trim());
+    const coverFile=$('#cover').files[0];
+    if(coverFile) fd.append('cover',coverFile);
     fd.append('zoneId',$('#zoneSel').value); fd.append('newZone',$('#newZone').value.trim());
-    showMsg($('#upMsg'),'ok','上传中，正在生成封面…');
+    showMsg($('#upMsg'),'ok','上传中…');
     const r=await fetch('/api/admin/upload',{method:'POST',headers:{'x-admin-key':KEY},body:fd}).then(r=>r.json());
     if(r.error){ showMsg($('#upMsg'),'err',r.error); return; }
-    showMsg($('#upMsg'),'ok','上传成功：'+r.title+'（封面稍后自动生成，请稍候刷新）');
-    $('#file').value=''; $('#title').value=''; $('#newZone').value=''; $('#drop').textContent='点击选择 PDF 文件，或拖拽到此处';
+    showMsg($('#upMsg'),'ok','上传成功：'+r.title);
+    $('#file').value=''; $('#title').value=''; $('#newZone').value=''; $('#cover').value=''; $('#drop').textContent='点击选择 PDF 文件，或拖拽到此处';
     loadZones(); loadFiles();
     // 后台生成封面/页数期间，自动刷新列表以显示最新状态
     setTimeout(loadFiles, 5000);
@@ -140,10 +147,21 @@
   };
   function showMsg(el,type,t){ el.className='msg '+type; el.textContent=t; }
 
-  // 拖拽
+    // 拖拽
   ['dragover','dragenter'].forEach(e=>$('#drop').addEventListener(e,ev=>{ev.preventDefault();$('#drop').style.borderColor='var(--accent)';$('#drop').style.color='var(--accent)';}));
   ['dragleave','drop'].forEach(e=>$('#drop').addEventListener(e,ev=>{ev.preventDefault();$('#drop').style.borderColor='';$('#drop').style.color='';}));
   $('#drop').addEventListener('drop',ev=>{ const f=ev.dataTransfer.files[0]; if(f){ $('#file').files=ev.dataTransfer.files; $('#drop').textContent='已选择：'+f.name; } });
+
+  // 单独设置封面
+  const coverPick=document.createElement('input'); coverPick.type='file'; coverPick.accept='image/*'; coverPick.hidden=true; coverPick.id='coverPick'; document.body.appendChild(coverPick);
+  coverPick.onchange=async()=>{
+    const id=coverPick.dataset.id; const cf=coverPick.files[0];
+    if(!id||!cf) return;
+    const fd=new FormData(); fd.append('cover',cf);
+    const r=await fetch('/api/admin/cover/'+id,{method:'POST',headers:{'x-admin-key':KEY},body:fd}).then(r=>r.json());
+    if(r.ok){ loadFiles(); } else alert('封面上传失败：'+(r.error||''));
+    coverPick.value='';
+  };
 
   // 新建分区
   $('#addZoneBtn').onclick=async()=>{ const n=$('#addZone').value.trim(); if(!n)return; const r=await fetch('/api/admin/zone',{method:'POST',headers:hdr(),body:JSON.stringify({name:n})}).then(r=>r.json()); if(r.error){alert(r.error);return;} $('#addZone').value=''; loadZones(); };
