@@ -1,10 +1,18 @@
-FROM node:20-slim
+FROM node:20
 
 WORKDIR /app
 
+# 安装原生模块可能需要的编译工具与系统库（@napi-rs/canvas / pdfjs-dist）
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
 # 仅安装生产依赖
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # 复制源码
 COPY . .

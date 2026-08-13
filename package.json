@@ -1,7 +1,7 @@
 {
-  "name": "yunyue-pdf-library",
+  "name": "reading-for-fun",
   "version": "1.0.0",
-  "description": "云阅 · PDF 资料库 — 访客浏览 + 后台上传的轻量应用",
+  "description": "Reading for fun — 访客浏览 + 后台上传的轻量 PDF 资料库",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
