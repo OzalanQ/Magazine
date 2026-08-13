@@ -89,17 +89,54 @@ app.get('/thumb/:id', (req, res) => {
   fs.createReadStream(path.join(THUMBS, f.thumb)).pipe(res);
 });
 
-// ---------- 默认封面（渐变占位图，不解析 PDF） ----------
-async function placeholderThumb(outPath, title) {
-  const { createCanvas } = require('@napi-rs/canvas');
-  const canvas = createCanvas(THUMB_W, Math.round(THUMB_W * 1.33));
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  g.addColorStop(0, '#4f6ef7'); g.addColorStop(1, '#7b5cf0');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 26px sans-serif';
-  ctx.fillText((title || 'PDF').slice(0, 12), 20, 60);
-  fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
+// ---------- 默认封面（渐变占位图，纯 Node 生成，不依赖 canvas 原生库） ----------
+const zlib = require('zlib');
+
+function placeholderThumb(outPath) {
+  const W = THUMB_W, H = Math.round(THUMB_W * 1.33);
+  const rowBytes = W * 4;
+  const raw = Buffer.alloc((rowBytes + 1) * H);
+  for (let y = 0; y < H; y++) {
+    const row = y * (rowBytes + 1);
+    raw[row] = 0; // 每行 filter 类型 0
+    for (let x = 0; x < W; x++) {
+      const t = (x + y) / (W + H); // 对角渐变
+      const r = Math.round(0x4f + (0x7b - 0x4f) * t);
+      const g = Math.round(0x6e + (0x5c - 0x6e) * t);
+      const b = Math.round(0xf7 + (0xf0 - 0xf7) * t);
+      const o = row + 1 + x * 4;
+      raw[o] = r; raw[o + 1] = g; raw[o + 2] = b; raw[o + 3] = 255;
+    }
+  }
+  fs.writeFileSync(outPath, buildPNG(W, H, zlib.deflateSync(raw)));
+}
+
+function buildPNG(W, H, idat) {
+  const crcTable = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  const crc32 = (buf) => {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+    const typeBuf = Buffer.from(type, 'ascii');
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+    return Buffer.concat([len, typeBuf, data, crc]);
+  };
+  const sig = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
 // 允许上传的图片类型
@@ -182,7 +219,7 @@ app.post('/api/admin/upload', requireKey, uploadBoth, async (req, res) => {
       fs.unlinkSync(coverFile.path);
     } else {
       thumbName = id + '.png';
-      await placeholderThumb(path.join(THUMBS, thumbName), title);
+      placeholderThumb(path.join(THUMBS, thumbName));
     }
 
     const meta = {

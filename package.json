@@ -9,11 +9,9 @@
     "seed": "node seed.js"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.100",
     "express": "^4.19.2",
     "fontkit": "^2.0.4",
     "multer": "^2.2.0",
-    "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^4.10.38"
+    "pdf-lib": "^1.17.1"
   }
 }
