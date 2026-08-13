@@ -28,6 +28,13 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
+// 缓存 pdfjs 动态导入，避免每次上传重复解析 ESM 模块
+let _pdfjsPromise = null;
+function getPdfjs() {
+  if (!_pdfjsPromise) _pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+  return _pdfjsPromise;
+}
+
 // 记录未捕获异常，避免进程直接崩溃
 process.on('uncaughtException', (e) => console.error('[uncaughtException]', e && e.stack || e));
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e && e.stack || e));
@@ -80,12 +87,13 @@ app.get('/thumb/:id', (req, res) => {
   const f = files.find((x) => x.id === req.params.id);
   if (!f) return res.status(404).end();
   res.type('image/png');
+  res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(path.join(THUMBS, f.thumb)).pipe(res);
 });
 
 // ---------- 缩略图生成（PDF 首页 -> PNG） ----------
 async function makeThumb(pdfPath, outPath) {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdfjs = await getPdfjs();
   const { createCanvas } = require('@napi-rs/canvas');
   const stdFonts = 'file://' + path.join(ROOT, 'node_modules', 'pdfjs-dist', 'standard_fonts');
   const buf = new Uint8Array(fs.readFileSync(pdfPath));
@@ -165,27 +173,31 @@ app.post('/api/admin/upload', requireKey, upload.single('pdf'), async (req, res)
     const title = (req.body.title || req.file.originalname.replace(/\.pdf$/i, '')).trim();
     const id = crypto.randomUUID();
     const thumbName = id + '.png';
-    // 页数
-    let pages = 0;
-    try {
-      const pdfDoc = await withTimeout(PDFDocument.load(fs.readFileSync(req.file.path)), 5000, 'PDF页数读取');
-      pages = pdfDoc.getPageCount();
-    } catch (e) { console.error('页数读取失败/超时：', e.message); }
-    // 缩略图
-    try {
-      await withTimeout(makeThumb(req.file.path, path.join(THUMBS, thumbName)), 15000, '缩略图生成');
-    } catch (e) {
-      console.error('缩略图生成失败/超时，使用占位图：', e.message);
-      await placeholderThumb(path.join(THUMBS, thumbName), title);
-    }
+
+    // 先写占位封面（极快），保证响应前缩略图端点立即可用
+    await placeholderThumb(path.join(THUMBS, thumbName), title);
+
+    // 立即返回成功，PDF 首页渲染与页数读取放到后台异步完成，不阻塞上传
     const meta = {
       id, title, zoneId: zone.id, zoneName: zone.name,
       filename: req.file.filename, thumb: thumbName,
-      pages, size: req.file.size, uploadedAt: new Date().toISOString().slice(0, 10),
+      pages: 0, size: req.file.size, uploadedAt: new Date().toISOString().slice(0, 10),
     };
     files.unshift(meta);
     writeJSON(FILES_F, files);
     res.json(meta);
+
+    // 后台任务：读取页数 + 生成真实封面
+    (async () => {
+      try {
+        const pdfDoc = await withTimeout(PDFDocument.load(fs.readFileSync(req.file.path)), 8000, 'PDF页数读取');
+        meta.pages = pdfDoc.getPageCount();
+      } catch (e) { console.error('页数读取失败/超时：', e.message); }
+      try {
+        await withTimeout(makeThumb(req.file.path, path.join(THUMBS, thumbName)), 20000, '缩略图生成');
+      } catch (e) { console.error('后台缩略图生成失败，保留占位图：', e.message); }
+      writeJSON(FILES_F, files); // 同步最新页数
+    })();
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: '上传失败：' + e.message });

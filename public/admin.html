@@ -131,9 +131,12 @@
     showMsg($('#upMsg'),'ok','上传中，正在生成封面…');
     const r=await fetch('/api/admin/upload',{method:'POST',headers:{'x-admin-key':KEY},body:fd}).then(r=>r.json());
     if(r.error){ showMsg($('#upMsg'),'err',r.error); return; }
-    showMsg($('#upMsg'),'ok','上传成功：'+r.title);
+    showMsg($('#upMsg'),'ok','上传成功：'+r.title+'（封面稍后自动生成，请稍候刷新）');
     $('#file').value=''; $('#title').value=''; $('#newZone').value=''; $('#drop').textContent='点击选择 PDF 文件，或拖拽到此处';
     loadZones(); loadFiles();
+    // 后台生成封面/页数期间，自动刷新列表以显示最新状态
+    setTimeout(loadFiles, 5000);
+    setTimeout(loadFiles, 15000);
   };
   function showMsg(el,type,t){ el.className='msg '+type; el.textContent=t; }
 
