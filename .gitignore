@@ -19,3 +19,6 @@ pdf-library-mockup.html
 
 # macOS
 .DS_Store
+
+# 部署密钥（含 ADMIN_KEY，禁止进仓库）
+.env
