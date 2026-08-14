@@ -7,7 +7,7 @@ services:
     container_name: reading-for-fun
     restart: unless-stopped        # 服务器重启/崩溃后自动拉起
     ports:
-      - "80:3000"                  # 主机 80 -> 容器 3000（访客直接 http 访问）
+      - "127.0.0.1:3000:3000"      # 仅本机监听，由前置 Nginx 接管 80/443
     env_file:
       - .env                       # ADMIN_KEY 等密钥从 .env 读取，不进仓库
     volumes:
